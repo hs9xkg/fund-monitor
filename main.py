@@ -19,6 +19,7 @@ TARGETS = [
         "name": "📈 US500X RMF (S&P500)",
         "candidates": ["K-US500XRMF", "K-US500X-RMF"] 
     },
+    # ตัวแถม (ถ้าตัวบนผ่าน ตัวนี้ก็ต้องผ่าน)
     {
         "name": "🧪 TEST: K-US500X-A",
         "candidates": ["K-US500X-A(A)"] 
@@ -26,8 +27,7 @@ TARGETS = [
 ]
 
 def get_nav_stealth(fund_name, candidates):
-    # --- ส่วนสำคัญ: บัตรประชาชนปลอม (Headers) ---
-    # หลอกว่าเป็น Chrome บน Windows 10
+    # --- 🎭 ส่วนพรางตัว (Fake ID) ---
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         'Accept': 'application/json, text/plain, */*',
@@ -40,20 +40,19 @@ def get_nav_stealth(fund_name, candidates):
         try:
             print(f"[{fund_name}] Trying: {code} ...")
             
-            # หน่วงเวลา 1 วินาที เพื่อไม่ให้ยิงรัวจนน่าสงสัย
+            # ⏱️ รอ 1 วินาที (ให้ดูเหมือนคนค่อยๆ คลิก ไม่ใช่บอทยิงรัว)
             time.sleep(1)
             
             url = "https://www.finnomena.com/fn3/api/fund/public/fund_overview"
             res = requests.get(url, params={'fund_code': code}, headers=headers, timeout=15)
             
-            # แปลงข้อมูลเป็น JSON
             try:
                 data = res.json()
             except:
-                print(f"   ❌ Failed to parse JSON (Status: {res.status_code})")
+                print(f"   ❌ JSON Error (Status: {res.status_code})")
                 continue
 
-            # ถ้า API ตอบกลับมาเป็น False (โดนบล็อก)
+            # ถ้ายังโดนจับได้ (ตอบกลับเป็น False)
             if isinstance(data, bool):
                 print(f"   ❌ Blocked (API returned False)")
                 continue
@@ -62,7 +61,7 @@ def get_nav_stealth(fund_name, candidates):
                 print(f"   ❌ Empty Data")
                 continue
 
-            # เจอก็เอาเลย!
+            # 🎉 เจอก็เอาเลย!
             nav = data['data']['nav_price']
             date = data['data']['nav_date']
             date_nice = datetime.strptime(date[:10], '%Y-%m-%d').strftime('%d %b')
@@ -74,7 +73,7 @@ def get_nav_stealth(fund_name, candidates):
             print(f"   ⚠️ Error: {e}")
             continue
             
-    return "N/A (Blocked/Not Found)"
+    return "N/A (Blocked)"
 
 def send_to_teams():
     if not WEBHOOK_URL:
