@@ -17,7 +17,7 @@ def get_nav(fund_code):
     try:
         # 2. ปรับวิธีเรียก URL ให้ปลอดภัย (จัดการวงเล็บและอักษรพิเศษให้อัตโนมัติ)
         base_url = "https://www.finnomena.com/fn3/api/fund/public/fund_overview"
-        # ใช้ params แทนการพิมพ์ต่อท้าย URL ตรงๆ
+        # ใช้ params แทนการพิมพ์ต่อท้าย URL ตรงๆ เพื่อแก้ปัญหาเรื่องวงเล็บ ( )
         res = requests.get(base_url, params={'fund_code': fund_code}, headers={'User-Agent': 'Mozilla/5.0'})
         
         data = res.json()
