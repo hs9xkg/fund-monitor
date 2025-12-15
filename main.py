@@ -3,45 +3,46 @@ import json
 import os
 from datetime import datetime
 
-# URL จาก Secrets
 WEBHOOK_URL = os.environ.get("TEAMS_WEBHOOK")
 
-# เราจะไม่ใส่รหัสเป๊ะๆ แล้ว แต่ใส่ "คำค้นหา" แทน (ให้ระบบไปหาตัวจริงมาเอง)
+# ใช้ Keyword กว้างๆ เดี๋ยวให้ระบบไปหาตัวจริงมาให้เอง
 SEARCH_LIST = [
-    {"keyword": "K-USXNDQ-A(A)", "display_name": "🇺🇸 USXNDQ-A (Tech)"},
-    {"keyword": "K-CHANGE-RMF",  "display_name": "🌍 Change RMF (Climate)"},
-    {"keyword": "K-US500X-RMF",  "display_name": "📈 US500X RMF (S&P500)"}
+    {"keyword": "USXNDQ",     "display_name": "🇺🇸 USXNDQ-A (Tech)"},
+    {"keyword": "CHANGE-RMF", "display_name": "🌍 Change RMF (Climate)"},
+    {"keyword": "US500X-RMF", "display_name": "📈 US500X RMF (S&P500)"}
 ]
 
-def get_nav_auto_search(keyword):
+def get_nav_bulletproof(keyword):
     headers = {'User-Agent': 'Mozilla/5.0'}
     try:
-        # 1. ค้นหารหัสที่ถูกต้องก่อน (Search API)
+        # 1. ค้นหา Fund Code ที่ถูกต้องจากระบบ (Search API)
         search_url = "https://www.finnomena.com/fn3/api/fund/public/search"
+        # สั่งค้นหาและเอาตัวแรกสุดที่เจอ
         search_res = requests.get(search_url, params={"q": keyword}, headers=headers)
         search_data = search_res.json()
         
-        if not search_data:
+        if not search_data or isinstance(search_data, bool):
             return "Fund Not Found"
             
-        # เอาผลลัพธ์แรกสุดที่เจอ (แม่นยำที่สุด)
-        best_match = search_data[0]
-        valid_fund_code = best_match['fund_code']
-        print(f"[{keyword}] Found valid code: {valid_fund_code}") # Log ดูว่ามันเจออะไร
+        # ดึงรหัสที่ถูกต้องจากผลลัพธ์แรก
+        valid_fund_code = search_data[0]['fund_code']
+        print(f"[{keyword}] Found valid code: {valid_fund_code}")
 
-        # 2. ใช้รหัสที่ถูกต้อง ไปดึงราคา (Overview API)
+        # 2. เอา Fund Code ไปดึงราคา (Overview API)
         overview_url = "https://www.finnomena.com/fn3/api/fund/public/fund_overview"
         res = requests.get(overview_url, params={"fund_code": valid_fund_code}, headers=headers)
         data = res.json()
         
-        # ป้องกัน Error 'bool' object (เช็คว่ามี data จริงไหม)
-        if not data.get('data'): 
+        # --- จุดแก้ Error: เช็กก่อนว่าเป็น Boolean (False) หรือไม่ ---
+        if isinstance(data, bool): 
+            return "N/A (API returned False)"
+            
+        if 'data' not in data or not data['data']:
             return "Data Empty"
+        # ----------------------------------------------------
 
         nav = data['data']['nav_price']
         date = data['data']['nav_date']
-        
-        # จัด Format วันที่
         date_nice = datetime.strptime(date[:10], '%Y-%m-%d').strftime('%d %b')
         return f"{nav:.4f} ({date_nice})"
 
@@ -51,17 +52,16 @@ def get_nav_auto_search(keyword):
 
 def send_to_teams():
     if not WEBHOOK_URL:
-        print("Error: No Webhook URL")
         return
 
     facts = []
-    print("--- Starting Auto-Search Fund Monitor ---")
+    print("--- Starting Bulletproof Monitor ---")
     
     for item in SEARCH_LIST:
-        price = get_nav_auto_search(item['keyword'])
+        price = get_nav_bulletproof(item['keyword'])
         facts.append({"title": item['display_name'], "value": price})
 
-    # สร้างการ์ดส่ง Teams
+    # Adaptive Card
     card_payload = {
         "type": "message",
         "attachments": [{
