@@ -6,7 +6,7 @@ from datetime import datetime
 # URL จาก Secrets
 WEBHOOK_URL = os.environ.get("TEAMS_WEBHOOK")
 
-# 1. รายชื่อกองทุนที่ถูกต้อง (ตรวจสอบจาก Finnomena แล้ว)
+# แก้ไขรหัสกองทุนให้ตรงกับ Database ของ Finnomena (เอาขีดออก)
 FUNDS = [
     {"code": "K-USXNDQ-A(A)", "name": "🇺🇸 USXNDQ-A (Tech)"},
     {"code": "K-CHANGERMF",   "name": "🌍 Change RMF (Climate)"}, 
@@ -15,14 +15,15 @@ FUNDS = [
 
 def get_nav(fund_code):
     try:
-        # 2. ปรับวิธีเรียก URL ให้ปลอดภัย (จัดการวงเล็บและอักษรพิเศษให้อัตโนมัติ)
+        # ใช้ params เพื่อให้ Python จัดการวงเล็บ ( ) และอักษรพิเศษให้อัตโนมัติ
         base_url = "https://www.finnomena.com/fn3/api/fund/public/fund_overview"
-        # ใช้ params แทนการพิมพ์ต่อท้าย URL ตรงๆ เพื่อแก้ปัญหาเรื่องวงเล็บ ( )
         res = requests.get(base_url, params={'fund_code': fund_code}, headers={'User-Agent': 'Mozilla/5.0'})
         
         data = res.json()
         nav = data['data']['nav_price']
         date = data['data']['nav_date']
+        
+        # จัด format วันที่ให้อ่านง่าย
         date_nice = datetime.strptime(date[:10], '%Y-%m-%d').strftime('%d %b')
         return f"{nav:.4f} ({date_nice})"
     except Exception as e:
@@ -31,53 +32,46 @@ def get_nav(fund_code):
 
 def send_to_teams():
     if not WEBHOOK_URL:
-        print("Error: No Webhook URL")
         return
 
     facts = []
-    print("Fetching data...")
     for fund in FUNDS:
         price = get_nav(fund['code'])
         facts.append({"title": fund['name'], "value": price})
-        print(f"Got {fund['name']}: {price}")
 
-    # Adaptive Card สำหรับ Teams Workflow
+    # ส่งแบบ Adaptive Card (เพื่อให้ Teams รุ่นใหม่แสดงผลได้)
     card_payload = {
         "type": "message",
-        "attachments": [
-            {
-                "contentType": "application/vnd.microsoft.card.adaptive",
-                "content": {
-                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                    "type": "AdaptiveCard",
-                    "version": "1.4",
-                    "body": [
-                        {
-                            "type": "TextBlock",
-                            "text": "💰 Daily Fund Status",
-                            "weight": "Bolder",
-                            "size": "Large",
-                            "color": "Accent"
-                        },
-                        {
-                            "type": "TextBlock",
-                            "text": f"Updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-                            "isSubtle": True,
-                            "spacing": "None"
-                        },
-                        {
-                            "type": "FactSet",
-                            "facts": facts
-                        }
-                    ]
-                }
+        "attachments": [{
+            "contentType": "application/vnd.microsoft.card.adaptive",
+            "content": {
+                "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                "type": "AdaptiveCard",
+                "version": "1.4",
+                "body": [
+                    {
+                        "type": "TextBlock",
+                        "text": "💰 Daily Fund Status",
+                        "weight": "Bolder",
+                        "size": "Large",
+                        "color": "Accent"
+                    },
+                    {
+                        "type": "TextBlock",
+                        "text": f"Updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                        "isSubtle": True,
+                        "spacing": "None"
+                    },
+                    {
+                        "type": "FactSet",
+                        "facts": facts
+                    }
+                ]
             }
-        ]
+        }]
     }
     
-    headers = {'Content-Type': 'application/json'}
-    res = requests.post(WEBHOOK_URL, json=card_payload, headers=headers)
-    print(f"Sent to Teams. Status Code: {res.status_code}")
+    requests.post(WEBHOOK_URL, json=card_payload)
 
 if __name__ == "__main__":
     send_to_teams()
