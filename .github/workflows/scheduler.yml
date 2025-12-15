@@ -1,0 +1,20 @@
+name: Daily Fund Check
+
+on:
+  schedule:
+    # รันทุกวันตอน 18:00 น. ประเทศไทย (UTC 11:00)
+    - cron: '0 11 * * *'
+  workflow_dispatch: # ปุ่มกดรันเองไว้ทดสอบ
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - run: pip install requests
+      - run: python main.py
+        env:
+          TEAMS_WEBHOOK: ${{ secrets.TEAMS_WEBHOOK }}
