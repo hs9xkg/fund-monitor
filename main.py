@@ -1,91 +1,69 @@
+import yfinance as yf
 import requests
-import json
 import os
-import time
 from datetime import datetime
 
 WEBHOOK_URL = os.environ.get("TEAMS_WEBHOOK")
 
+# จับคู่กองทุนไทย -> กองทุนแม่ (Master Fund)
+# ข้อดี: Yahoo Finance อัปเดต Real-time และไม่บล็อก
 TARGETS = [
     {
-        "name": "🇺🇸 USXNDQ-A (Tech)",
-        "candidates": ["K-USXNDQ-A(A)", "K-USXNDQ-A"] 
+        "thai_name": "🇺🇸 K-USXNDQ (Tech)",
+        "master_ticker": "QQQ",  # Invesco QQQ Trust
+        "desc": "Nasdaq-100 ETF"
     },
     {
-        "name": "🌍 Change RMF (Climate)",
-        "candidates": ["K-CHANGERMF", "K-CHANGE-RMF"] 
+        "thai_name": "📈 K-US500X (S&P500)",
+        "master_ticker": "IVV",  # iShares Core S&P 500 ETF
+        "desc": "S&P 500 ETF"
     },
     {
-        "name": "📈 US500X RMF (S&P500)",
-        "candidates": ["K-US500XRMF", "K-US500X-RMF"] 
-    },
-    # ตัวแถม (ถ้าตัวบนผ่าน ตัวนี้ก็ต้องผ่าน)
-    {
-        "name": "🧪 TEST: K-US500X-A",
-        "candidates": ["K-US500X-A(A)"] 
+        "thai_name": "🌍 K-CHANGE (Climate)",
+        "master_ticker": "BPGIX", # Baillie Gifford Positive Change (US Class)
+        "desc": "Master Fund Proxy"
     }
 ]
 
-def get_nav_stealth(fund_name, candidates):
-    # --- 🎭 ส่วนพรางตัว (Fake ID) ---
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Referer': 'https://www.finnomena.com/',
-        'Origin': 'https://www.finnomena.com',
-        'Accept-Language': 'en-US,en;q=0.9,th;q=0.8'
-    }
-    
-    for code in candidates:
-        try:
-            print(f"[{fund_name}] Trying: {code} ...")
+def get_market_data(ticker):
+    try:
+        print(f"Fetching {ticker} from Yahoo Finance...")
+        stock = yf.Ticker(ticker)
+        
+        # ดึงราคาล่าสุด
+        history = stock.history(period="2d")
+        if history.empty:
+            return "N/A"
             
-            # ⏱️ รอ 1 วินาที (ให้ดูเหมือนคนค่อยๆ คลิก ไม่ใช่บอทยิงรัว)
-            time.sleep(1)
-            
-            url = "https://www.finnomena.com/fn3/api/fund/public/fund_overview"
-            res = requests.get(url, params={'fund_code': code}, headers=headers, timeout=15)
-            
-            try:
-                data = res.json()
-            except:
-                print(f"   ❌ JSON Error (Status: {res.status_code})")
-                continue
-
-            # ถ้ายังโดนจับได้ (ตอบกลับเป็น False)
-            if isinstance(data, bool):
-                print(f"   ❌ Blocked (API returned False)")
-                continue
-                
-            if 'data' not in data or not data['data']:
-                print(f"   ❌ Empty Data")
-                continue
-
-            # 🎉 เจอก็เอาเลย!
-            nav = data['data']['nav_price']
-            date = data['data']['nav_date']
-            date_nice = datetime.strptime(date[:10], '%Y-%m-%d').strftime('%d %b')
-            
-            print(f"   ✅ SUCCESS! Found NAV: {nav}")
-            return f"{nav:.4f} ({date_nice})"
-
-        except Exception as e:
-            print(f"   ⚠️ Error: {e}")
-            continue
-            
-    return "N/A (Blocked)"
+        last_close = history['Close'].iloc[-1]
+        prev_close = history['Close'].iloc[-2]
+        
+        # คำนวณ % การเปลี่ยนแปลง (จะได้รู้ว่าวันนี้หุ้นขึ้นหรือลง)
+        change_percent = ((last_close - prev_close) / prev_close) * 100
+        
+        # ใส่ Emoji บอกทิศทางกราฟ
+        icon = "🟢" if change_percent >= 0 else "🔴"
+        
+        return f"${last_close:.2f} ({icon} {change_percent:+.2f}%)"
+    except Exception as e:
+        print(f"Error: {e}")
+        return "Error"
 
 def send_to_teams():
     if not WEBHOOK_URL:
         return
 
     facts = []
-    print("--- Starting Stealth Monitor ---")
+    print("--- Starting Yahoo Finance Monitor ---")
     
     for item in TARGETS:
-        price = get_nav_stealth(item['name'], item['candidates'])
-        facts.append({"title": item['name'], "value": price})
+        price_info = get_market_data(item['master_ticker'])
+        facts.append({
+            "title": item['thai_name'], 
+            "value": f"{price_info} \n*({item['desc']})*"
+        })
 
+    # Adaptive Card
     card_payload = {
         "type": "message",
         "attachments": [{
@@ -97,7 +75,7 @@ def send_to_teams():
                 "body": [
                     {
                         "type": "TextBlock",
-                        "text": "💰 Daily Fund Status",
+                        "text": "🇺🇸 Market Pulse (Master Funds)",
                         "weight": "Bolder",
                         "size": "Large",
                         "color": "Accent"
@@ -111,6 +89,13 @@ def send_to_teams():
                     {
                         "type": "FactSet",
                         "facts": facts
+                    },
+                    {
+                        "type": "TextBlock",
+                        "text": "*Note: Prices in USD. Use % change to track trend.*",
+                        "size": "Small",
+                        "isSubtle": True,
+                        "wrap": True
                     }
                 ]
             }
