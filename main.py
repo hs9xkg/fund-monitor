@@ -6,53 +6,48 @@ from datetime import datetime
 # URL จาก Secrets
 WEBHOOK_URL = os.environ.get("TEAMS_WEBHOOK")
 
-# รายชื่อกองทุน พร้อม "รหัสสำรอง" (Candidate Codes)
-# สคริปต์จะลองไล่เช็กทีละรหัส จนกว่าจะเจอตัวที่ใช่
-TARGETS = [
-    {
-        "name": "🇺🇸 USXNDQ-A (Tech)",
-        "candidates": ["K-USXNDQ-A(A)", "K-USXNDQ-A", "K-USXNDQ"] 
-    },
-    {
-        "name": "🌍 Change RMF (Climate)",
-        "candidates": ["K-CHANGE-RMF", "K-CHANGERMF", "K-CHANGE"] 
-    },
-    {
-        "name": "📈 US500X RMF (S&P500)",
-        "candidates": ["K-US500X-RMF", "K-US500XRMF", "K-US500X"] 
-    }
+# เราจะไม่ใส่รหัสเป๊ะๆ แล้ว แต่ใส่ "คำค้นหา" แทน (ให้ระบบไปหาตัวจริงมาเอง)
+SEARCH_LIST = [
+    {"keyword": "K-USXNDQ-A(A)", "display_name": "🇺🇸 USXNDQ-A (Tech)"},
+    {"keyword": "K-CHANGE-RMF",  "display_name": "🌍 Change RMF (Climate)"},
+    {"keyword": "K-US500X-RMF",  "display_name": "📈 US500X RMF (S&P500)"}
 ]
 
-def fetch_nav_smart(fund_name, candidates):
-    base_url = "https://www.finnomena.com/fn3/api/fund/public/fund_overview"
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Referer': 'https://www.finnomena.com/'
-    }
-    
-    # วนลูปลองรหัสทีละตัว
-    for code in candidates:
-        try:
-            print(f"[{fund_name}] Trying code: {code} ...")
-            res = requests.get(base_url, params={'fund_code': code}, headers=headers, timeout=10)
+def get_nav_auto_search(keyword):
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    try:
+        # 1. ค้นหารหัสที่ถูกต้องก่อน (Search API)
+        search_url = "https://www.finnomena.com/fn3/api/fund/public/search"
+        search_res = requests.get(search_url, params={"q": keyword}, headers=headers)
+        search_data = search_res.json()
+        
+        if not search_data:
+            return "Fund Not Found"
             
-            if res.status_code == 200:
-                data = res.json()
-                if 'data' in data and data['data']:
-                    nav = data['data']['nav_price']
-                    date = data['data']['nav_date']
-                    
-                    # ถ้าได้ข้อมูลแล้ว ให้จัด Format แล้วส่งกลับเลย (ไม่ต้องลองตัวอื่นต่อ)
-                    date_nice = datetime.strptime(date[:10], '%Y-%m-%d').strftime('%d %b')
-                    print(f"✅ Success! Found {code} = {nav}")
-                    return f"{nav:.4f} ({date_nice})"
-        except Exception as e:
-            print(f"❌ Error checking {code}: {e}")
-            continue
-            
-    # ถ้าลองครบทุกรหัสแล้วยังไม่ได้
-    print(f"⚠️ Failed to find NAV for {fund_name}")
-    return "N/A (Not Found)"
+        # เอาผลลัพธ์แรกสุดที่เจอ (แม่นยำที่สุด)
+        best_match = search_data[0]
+        valid_fund_code = best_match['fund_code']
+        print(f"[{keyword}] Found valid code: {valid_fund_code}") # Log ดูว่ามันเจออะไร
+
+        # 2. ใช้รหัสที่ถูกต้อง ไปดึงราคา (Overview API)
+        overview_url = "https://www.finnomena.com/fn3/api/fund/public/fund_overview"
+        res = requests.get(overview_url, params={"fund_code": valid_fund_code}, headers=headers)
+        data = res.json()
+        
+        # ป้องกัน Error 'bool' object (เช็คว่ามี data จริงไหม)
+        if not data.get('data'): 
+            return "Data Empty"
+
+        nav = data['data']['nav_price']
+        date = data['data']['nav_date']
+        
+        # จัด Format วันที่
+        date_nice = datetime.strptime(date[:10], '%Y-%m-%d').strftime('%d %b')
+        return f"{nav:.4f} ({date_nice})"
+
+    except Exception as e:
+        print(f"Error processing {keyword}: {e}")
+        return "Error"
 
 def send_to_teams():
     if not WEBHOOK_URL:
@@ -60,13 +55,13 @@ def send_to_teams():
         return
 
     facts = []
-    print("--- Starting Smart Fund Monitor ---")
+    print("--- Starting Auto-Search Fund Monitor ---")
     
-    for item in TARGETS:
-        price = fetch_nav_smart(item['name'], item['candidates'])
-        facts.append({"title": item['name'], "value": price})
+    for item in SEARCH_LIST:
+        price = get_nav_auto_search(item['keyword'])
+        facts.append({"title": item['display_name'], "value": price})
 
-    # Adaptive Card
+    # สร้างการ์ดส่ง Teams
     card_payload = {
         "type": "message",
         "attachments": [{
