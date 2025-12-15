@@ -1,55 +1,68 @@
 import requests
 import json
 import os
+import time
 from datetime import datetime
 
 WEBHOOK_URL = os.environ.get("TEAMS_WEBHOOK")
 
 TARGETS = [
-    # 1. Tech (ที่เดิม)
     {
         "name": "🇺🇸 USXNDQ-A (Tech)",
-        "candidates": ["K-USXNDQ-A(A)", "K-USXNDQ-A", "K-USXNDQ"] 
+        "candidates": ["K-USXNDQ-A(A)", "K-USXNDQ-A"] 
     },
-    # 2. Climate RMF (ที่เดิม)
     {
         "name": "🌍 Change RMF (Climate)",
-        "candidates": ["K-CHANGE-RMF", "K-CHANGERMF", "K-CHANGE"] 
+        "candidates": ["K-CHANGERMF", "K-CHANGE-RMF"] 
     },
-    # 3. S&P500 RMF (ที่เดิม)
     {
         "name": "📈 US500X RMF (S&P500)",
-        "candidates": ["K-US500X-RMF", "K-US500XRMF", "K-US500X-RMF(A)"] 
+        "candidates": ["K-US500XRMF", "K-US500X-RMF"] 
     },
-    # 4. (ตัวใหม่!) S&P500 แบบธรรมดา เอามาเทียบดูว่าดึงได้ไหม
     {
-        "name": "🧪 TEST: K-US500X-A (Normal)",
-        "candidates": ["K-US500X-A(A)", "K-US500X-A", "K-US500X"] 
+        "name": "🧪 TEST: K-US500X-A",
+        "candidates": ["K-US500X-A(A)"] 
     }
 ]
 
-def get_nav_smart(fund_name, candidates):
+def get_nav_stealth(fund_name, candidates):
+    # --- ส่วนสำคัญ: บัตรประชาชนปลอม (Headers) ---
+    # หลอกว่าเป็น Chrome บน Windows 10
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-        'Referer': 'https://www.finnomena.com/'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/json, text/plain, */*',
+        'Referer': 'https://www.finnomena.com/',
+        'Origin': 'https://www.finnomena.com',
+        'Accept-Language': 'en-US,en;q=0.9,th;q=0.8'
     }
     
     for code in candidates:
         try:
             print(f"[{fund_name}] Trying: {code} ...")
+            
+            # หน่วงเวลา 1 วินาที เพื่อไม่ให้ยิงรัวจนน่าสงสัย
+            time.sleep(1)
+            
             url = "https://www.finnomena.com/fn3/api/fund/public/fund_overview"
-            res = requests.get(url, params={'fund_code': code}, headers=headers, timeout=10)
-            data = res.json()
+            res = requests.get(url, params={'fund_code': code}, headers=headers, timeout=15)
+            
+            # แปลงข้อมูลเป็น JSON
+            try:
+                data = res.json()
+            except:
+                print(f"   ❌ Failed to parse JSON (Status: {res.status_code})")
+                continue
 
-            # Anti-Crash: ถ้าได้ bool (False) ให้ข้าม
+            # ถ้า API ตอบกลับมาเป็น False (โดนบล็อก)
             if isinstance(data, bool):
-                print(f"   ❌ Failed (API returned False)")
+                print(f"   ❌ Blocked (API returned False)")
                 continue
                 
             if 'data' not in data or not data['data']:
-                print(f"   ❌ Failed (Empty Data)")
+                print(f"   ❌ Empty Data")
                 continue
 
+            # เจอก็เอาเลย!
             nav = data['data']['nav_price']
             date = data['data']['nav_date']
             date_nice = datetime.strptime(date[:10], '%Y-%m-%d').strftime('%d %b')
@@ -61,17 +74,17 @@ def get_nav_smart(fund_name, candidates):
             print(f"   ⚠️ Error: {e}")
             continue
             
-    return "N/A (Not Found)"
+    return "N/A (Blocked/Not Found)"
 
 def send_to_teams():
     if not WEBHOOK_URL:
         return
 
     facts = []
-    print("--- Starting Monitor (With Control Test) ---")
+    print("--- Starting Stealth Monitor ---")
     
     for item in TARGETS:
-        price = get_nav_smart(item['name'], item['candidates'])
+        price = get_nav_stealth(item['name'], item['candidates'])
         facts.append({"title": item['name'], "value": price})
 
     card_payload = {
