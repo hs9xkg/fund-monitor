@@ -3,10 +3,9 @@ import json
 import os
 from datetime import datetime
 
-# URL ของ Webhook จะถูกดึงมาจาก Secret ที่คุณตั้งเมื่อกี้ (ปลอดภัย 100%)
+# URL จาก Secrets
 WEBHOOK_URL = os.environ.get("TEAMS_WEBHOOK")
 
-# รายชื่อกองทุน (Mapping รหัสให้ตรงกับระบบ Finnomena)
 FUNDS = [
     {"code": "K-USXNDQ-A(A)", "name": "🇺🇸 USXNDQ-A (Tech)"},
     {"code": "K-CHANGE-RMF",  "name": "🌍 Change RMF (Climate)"},
@@ -14,54 +13,69 @@ FUNDS = [
 ]
 
 def get_nav(fund_code):
-    """ฟังก์ชันดึงราคา NAV ล่าสุดจาก Finnomena"""
     try:
         url = f"https://www.finnomena.com/fn3/api/fund/public/fund_overview?fund_code={fund_code}"
         res = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'})
         data = res.json()
-        
-        # เจาะเอาข้อมูลราคาและวันที่
         nav = data['data']['nav_price']
         date = data['data']['nav_date']
-        
-        # จัดรูปแบบวันที่ให้อ่านง่าย (จาก 2023-12-15 เป็น 15 Dec)
-        date_obj = datetime.strptime(date[:10], '%Y-%m-%d')
-        date_nice = date_obj.strftime('%d %b')
-        
-        return f"{nav:.4f} THB ({date_nice})"
-    except Exception as e:
-        print(f"Error fetching {fund_code}: {e}")
+        date_nice = datetime.strptime(date[:10], '%Y-%m-%d').strftime('%d %b')
+        return f"{nav:.4f} ({date_nice})"
+    except:
         return "N/A"
 
 def send_to_teams():
     if not WEBHOOK_URL:
-        print("Error: ไม่พบ TEAMS_WEBHOOK ใน Secrets")
+        print("Error: No Webhook URL")
         return
 
+    # เตรียมข้อมูล Facts สำหรับ Adaptive Card
     facts = []
     print("Fetching data...")
     for fund in FUNDS:
         price = get_nav(fund['code'])
-        facts.append({"name": fund['name'], "value": price})
+        facts.append({"title": fund['name'], "value": price})
         print(f"Got {fund['name']}: {price}")
 
-    # สร้างการ์ดสวยๆ ส่งเข้า Teams
-    card = {
-        "@type": "MessageCard",
-        "@context": "http://schema.org/extensions",
-        "themeColor": "0076D7",
-        "summary": "Fund Update",
-        "sections": [{
-            "activityTitle": "💰 Daily Fund Status",
-            "activitySubtitle": f"Updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-            "facts": facts,
-            "markdown": True
-        }]
+    # --- ส่วนที่แก้ไข: เปลี่ยนเป็น Adaptive Card ---
+    card_payload = {
+        "type": "message",
+        "attachments": [
+            {
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.4",
+                    "body": [
+                        {
+                            "type": "TextBlock",
+                            "text": "💰 Daily Fund Status",
+                            "weight": "Bolder",
+                            "size": "Large",
+                            "color": "Accent"
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": f"Updated: {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                            "isSubtle": True,
+                            "spacing": "None"
+                        },
+                        {
+                            "type": "FactSet",
+                            "facts": facts
+                        }
+                    ]
+                }
+            }
+        ]
     }
     
     # ยิงข้อมูลออกไป
-    res = requests.post(WEBHOOK_URL, json=card)
+    headers = {'Content-Type': 'application/json'}
+    res = requests.post(WEBHOOK_URL, json=card_payload, headers=headers)
     print(f"Sent to Teams. Status Code: {res.status_code}")
+    print(res.text) # ปริ้นท์ Response ดูว่า Teams ตอบกลับว่าอะไร
 
 if __name__ == "__main__":
     send_to_teams()
